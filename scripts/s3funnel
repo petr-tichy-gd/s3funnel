@@ -79,6 +79,7 @@ def main():
     parser.add_option("-i", "--input",      dest="input", type="string", metavar="FILE", help="Read one file per line from a FILE manifest")
     parser.add_option("-v", "--verbose",    dest="verbose", action="count", default=None, help="Enable verbose output. Use twice to enable debug output")
     parser.add_option("--version",          dest="version", action="store_true", help="Output version information and exit")
+    parser.add_option("--batch-delete",     dest="batch_delete", default=1, type="int", metavar="N", help="(`delete` only) Delete in batches of N")
 
     # Deprecated options (for backwards compatibility)
     parser.add_option("--start_key",        dest="list_marker", type="string", default=None, help=SUPPRESS_HELP)
@@ -157,6 +158,13 @@ def main():
     elif options.verbose > 0:
         set_log_level(logging.INFO)
 
+    if operation == 'delete' and options.batch_delete > 1:
+        operation = 'batch_delete'
+        if options.batch_delete > 1000:
+            options.batch_delete = 1000
+            log.info("Limiting delete batch to 1000")
+        log.info("Batch delete using batch size of %s" % options.batch_delete)
+
     # Setup operation configuration
     config = {'acl': options.acl,
               'list_marker': options.list_marker or '',
@@ -173,23 +181,25 @@ def main():
               'del_prefix': options.del_prefix,
               'headers': headers,
               'numthreads': options.numthreads,
-              'ignore_s3fs_dirs': options.ignore_s3fs_dirs
+              'ignore_s3fs_dirs': options.ignore_s3fs_dirs,
+              'batch_delete': options.batch_delete
               }
 
     funnel = S3Funnel(**config)
 
     # Setup operation mapping
     methods_keys = {
-       'get':    funnel.get,
-       'put':    funnel.put,
-       'delete': funnel.delete,
-       'copy':   funnel.copy,
+        'get':          funnel.get,
+        'put':          funnel.put,
+        'delete':       funnel.delete,
+        'batch_delete': funnel.batch_delete,
+        'copy':         funnel.copy,
     }
 
     methods_bucket = {
-       'list':   funnel.list_bucket,
-       'drop':   funnel.drop_bucket,
-       'create': funnel.create_bucket,
+        'list':   funnel.list_bucket,
+        'drop':   funnel.drop_bucket,
+        'create': funnel.create_bucket,
     }
 
     methods_global = {

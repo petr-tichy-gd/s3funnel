@@ -10,9 +10,9 @@ from socket import error as SocketError
 from Queue import Queue, Empty
 from exceptions import FunnelError
 
-from jobs import GetJob, PutJob, DeleteJob, CopyJob
+from jobs import GetJob, PutJob, DeleteJob, DeleteMulitpleJob, CopyJob
 
-__all__ = ['GetJob','PutJob','DeleteJob','S3ToolBox','BucketFunnel']
+__all__ = ['GetJob', 'PutJob', 'DeleteJob', 'DeleteMulitpleJob', 'S3ToolBox', 'BucketFunnel']
 
 # Helpers
 
@@ -187,6 +187,46 @@ class S3Funnel(object):
         pool = self._get_pool()
         for k in ikeys:
             j = DeleteJob(bucket, k, failed, c)
+            pool.put(j)
+        pool.join()
+
+        return collapse_queue(failed)
+
+    def batch_delete(self, bucket, ikeys, retry=5, **config):
+        """
+        Given an iterator of key names, delete these keys from the current bucket.
+        Return a list of failed keys (if any).
+        """
+
+        def grouper(iterable, n):
+            iterable = iter(iterable)
+            i = n
+            group = []
+            while True:
+                try:
+                    item = iterable.next()
+                    if item:
+                        group.append(item)
+                        i -= 1
+                    if i == 0:
+                        yield group
+                        group = []
+                        i = n
+                except StopIteration:
+                    if group:
+                        yield group
+                    break
+
+        # Setup local config for this request
+        c = {}
+        c.update(config)
+        c['retry'] = retry
+
+        failed = Queue()
+        pool = self._get_pool()
+        batch_size = c['batch_delete']
+        for k in grouper(ikeys, batch_size):
+            j = DeleteMulitpleJob(bucket, k, failed, c)
             pool.put(j)
         pool.join()
 

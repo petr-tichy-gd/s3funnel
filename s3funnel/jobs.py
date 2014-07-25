@@ -4,9 +4,11 @@
 # This module is part of s3funnel and is released under
 # the MIT license: http://www.opensource.org/licenses/mit-license.php
 
-from workerpool import Job
-import boto
 import time
+
+from workerpool import Job
+
+
 try:
     import hashlib
 except ImportError:
@@ -14,6 +16,7 @@ except ImportError:
 
 import os
 import logging
+
 log = logging.getLogger(__name__)
 
 READ_CHUNK = 8192
@@ -22,34 +25,36 @@ READ_CHUNK = 8192
 from boto.exception import BotoServerError, BotoClientError, S3ResponseError
 from httplib import IncompleteRead
 from socket import error as SocketError
-from s3funnel import FunnelError
+
 
 class JobError(Exception):
     pass
+
 
 # Jobs
 
 class GetJob(Job):
     "Download the given key from S3."
+
     def __init__(self, bucket, key, failed, config={}):
         self.bucket = bucket
         self.key = key
         self.failed = failed
         self.retries = config.get('retry', 5)
-        self.ignore_s3fs_dirs = config.get('ignore_s3fs_dirs',True)
+        self.ignore_s3fs_dirs = config.get('ignore_s3fs_dirs', True)
 
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
                 b = toolbox.get_bucket(self.bucket)
-                    
+
                 b.connection.provider.metadata_prefix = ''
                 k = b.get_key(self.key)
                 m = k.get_metadata('content-type')
-                
+
                 if m == 'application/x-directory' and self.ignore_s3fs_dirs:
-                     log.warn("Skipping s3fs directory: %s" % self.key)
-                     return
+                    log.warn("Skipping s3fs directory: %s" % self.key)
+                    return
                 try:
                     # Create directories in case key has "/"
                     if os.path.dirname(self.key) and not os.path.exists(os.path.dirname(self.key)):
@@ -71,7 +76,7 @@ class GetJob(Job):
                 break
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
-                time.sleep((2 ** i) / 4.0) # Exponential backoff
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
             except IOError, e:
                 log.error("%s: '%s'" % (e.strerror, e.filename))
                 return
@@ -83,13 +88,15 @@ class GetJob(Job):
         try:
             self._do(toolbox)
         except JobError, e:
-            os.unlink(self.key) # Remove file since download failed
+            os.unlink(self.key)  # Remove file since download failed
             self.failed.put(self.key)
         except Exception, e:
             self.failed.put(e)
 
+
 class PutJob(Job):
     "Upload the given file to S3, where the key corresponds to basename(path)"
+
     def __init__(self, bucket, path, failed, config={}):
         self.bucket = bucket
         self.path = path
@@ -99,8 +106,8 @@ class PutJob(Job):
         self.key = "%s%s" % (self.add_prefix, self.path)
         # --del-prefix logic
         self.del_prefix = config.get('del_prefix')
-        if self.del_prefix and self.key.startswith(self.del_prefix): 
-            self.key = self.key.replace(self.del_prefix, '', 1)    
+        if self.del_prefix and self.key.startswith(self.del_prefix):
+            self.key = self.key.replace(self.del_prefix, '', 1)
         if not config.get('put_full_path'):
             self.key = os.path.basename(self.key)
         self.retries = config.get('retry', 5)
@@ -147,7 +154,7 @@ class PutJob(Job):
                 toolbox.reset()
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
-                time.sleep((2 ** i) / 4.0) # Exponential backoff
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
             except IOError, e:
                 log.warning("Path does not exist, skipping: %s" % self.path)
                 break
@@ -165,8 +172,10 @@ class PutJob(Job):
         except Exception, e:
             self.failed.put(e)
 
+
 class DeleteJob(Job):
     "Delete the given key from S3."
+
     def __init__(self, bucket, key, failed, config={}):
         self.bucket = bucket
         self.key = key
@@ -186,7 +195,7 @@ class DeleteJob(Job):
                 break
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
-                time.sleep((2 ** i) / 4.0) # Exponential backoff
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
 
         log.error("Failed to delete: %s" % self.key)
 
@@ -197,9 +206,51 @@ class DeleteJob(Job):
             self.failed.put(self.key)
         except Exception, e:
             self.failed.put(e)
-            
+
+
+class DeleteMulitpleJob(Job):
+    "Delete the given keys from S3."
+
+    def __init__(self, bucket, keys, failed, config={}):
+        self.bucket = bucket
+        self.keys = keys
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                k = toolbox.get_bucket(self.bucket).delete_keys(self.keys)
+                if hasattr(k, 'errors') and k.errors:
+                    log.error("Failed to delete: %s" % self.keys)
+                else:
+                    log.info("Deleted: %s" % self.keys)
+                return
+            except S3ResponseError, e:
+                log.warning("Connection lost, reconnecting and retrying...")
+                toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+            finally:
+                pass
+
+        log.error("Failed to delete: %s" % self.keys)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+
 class CopyJob(Job):
     "Copy the given key from another bucket."
+
     def __init__(self, bucket, key, failed, config={}):
         self.bucket = bucket
         self.key = key
@@ -208,12 +259,12 @@ class CopyJob(Job):
         self.dest_key = "%s%s" % (self.add_prefix, key)
         # --del-prefix logic
         self.del_prefix = config.get('del_prefix')
-        if self.del_prefix and self.dest_key.startswith(self.del_prefix): 
+        if self.del_prefix and self.dest_key.startswith(self.del_prefix):
             self.dest_key = self.dest_key.replace(self.del_prefix, '', 1)
         self.source_bucket = config.get('source_bucket')
         self.failed = failed
         self.retries = config.get('retry', 5)
-        
+
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
@@ -227,10 +278,10 @@ class CopyJob(Job):
                 break
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
-                time.sleep((2 ** i) / 4.0) # Exponential backoff
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
 
         log.error("Failed to copy: %s" % self.key)
-        
+
     def run(self, toolbox):
         try:
             self._do(toolbox)
