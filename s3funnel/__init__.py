@@ -63,7 +63,7 @@ class S3ToolBox(object):
         conn = self.get_conn()
         log.debug("Getting bucket instance: %s" % name)
         try:
-            bucket = conn.get_bucket(name)
+            bucket = conn.get_bucket(name, validate=False)
         except BotoServerError, e:
             raise FunnelError("Bucket not found: %s" % name, key=name)
 
