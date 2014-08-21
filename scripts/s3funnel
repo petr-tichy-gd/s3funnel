@@ -194,6 +194,7 @@ def main():
         'delete':       funnel.delete,
         'batch_delete': funnel.batch_delete,
         'copy':         funnel.copy,
+        'lookup':       funnel.lookup,
     }
 
     methods_bucket = {

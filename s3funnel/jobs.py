@@ -36,7 +36,7 @@ class JobError(Exception):
 class GetJob(Job):
     "Download the given key from S3."
 
-    def __init__(self, bucket, key, failed, config={}):
+    def __init__(self, bucket, key, failed, config=dict()):
         self.bucket = bucket
         self.key = key
         self.failed = failed
@@ -288,4 +288,43 @@ class CopyJob(Job):
         except JobError, e:
             self.failed.put(self.key)
         except Exception, e:
-            self.failed.put(e)        
+            self.failed.put(e)
+
+
+class LookupJob(Job):
+    """Lookup the given key. Checks accessibility of the key"""
+
+    def __init__(self, bucket, key, failed, config):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                if toolbox.get_bucket(self.bucket).lookup(self.key):
+                    log.info("OK: %s" % self.key)
+                    return
+            except S3ResponseError, e:
+                if e.status == 403 or e.status == 404:
+                    log.error("%s on %s" % (e.status, self.key))
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)

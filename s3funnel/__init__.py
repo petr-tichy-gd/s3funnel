@@ -10,9 +10,9 @@ from socket import error as SocketError
 from Queue import Queue, Empty
 from exceptions import FunnelError
 
-from jobs import GetJob, PutJob, DeleteJob, DeleteMulitpleJob, CopyJob
+from jobs import GetJob, PutJob, DeleteJob, DeleteMulitpleJob, CopyJob, LookupJob
 
-__all__ = ['GetJob', 'PutJob', 'DeleteJob', 'DeleteMulitpleJob', 'S3ToolBox', 'BucketFunnel']
+__all__ = ['GetJob', 'PutJob', 'DeleteJob', 'DeleteMulitpleJob', 'S3ToolBox', 'BucketFunnel', 'LookupJob']
 
 # Helpers
 
@@ -164,7 +164,7 @@ class S3Funnel(object):
                     yield k.name
                 if k:
                     marker = k.name
-                more_results= r.is_truncated
+                more_results = r.is_truncated
             except BotoServerError, e:
                 raise FunnelError("Failed to list bucket: %s" % name, key=name)
             except (IncompleteRead, SocketError, BotoClientError), e:
@@ -286,6 +286,44 @@ class S3Funnel(object):
         pool = self._get_pool()
         for k in ikeys:
             j = CopyJob(bucket, k, failed, c)
+            pool.put(j)
+        pool.join()
+
+        return collapse_queue(failed)
+
+    def setacl(self, bucket, ikeys, retry=5, **config):
+        """
+        Given an iterator of file paths, copy these files into the current bucket from source bucket
+        Return a list of failed keys (if any).
+        """
+        # Setup local config for this request
+        c = {}
+        c.update(config)
+        c['retry'] = retry
+
+        failed = Queue()
+        pool = self._get_pool()
+        for k in ikeys:
+            j = SetAclJob(bucket, k, failed, c)
+            pool.put(j)
+        pool.join()
+
+        return collapse_queue(failed)
+
+    def lookup(self, bucket, ikeys, retry=5, **config):
+        """
+        Given an iterator of file paths, copy these files into the current bucket from source bucket
+        Return a list of failed keys (if any).
+        """
+        # Setup local config for this request
+        c = {}
+        c.update(config)
+        c['retry'] = retry
+
+        failed = Queue()
+        pool = self._get_pool()
+        for k in ikeys:
+            j = LookupJob(bucket, k, failed, c)
             pool.put(j)
         pool.join()
 
