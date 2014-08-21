@@ -288,4 +288,46 @@ class CopyJob(Job):
         except JobError, e:
             self.failed.put(self.key)
         except Exception, e:
-            self.failed.put(e)        
+            self.failed.put(e)
+
+
+class SetAclJob(Job):
+    "Copy the given key from another bucket."
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                # k = toolbox.get_conn().make_request(method='PUT', bucket=self.bucket, key=self.key,
+                #                                     query_args='acl',
+                #                                     headers={'x-amz-grant-full-control': 'ID="db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf"'})
+                k = toolbox.get_conn().make_request(method='HEAD', bucket=self.bucket, key=self.key)
+                if k.status == 200:
+                    log.info("Done: %s" % self.key)
+                else:
+                    log.error("%s on %s" % (k.status, self.key))
+                    raise BotoServerError
+                return
+            except S3ResponseError, e:
+                log.warning("Connection lost, reconnecting and retrying...")
+                toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
