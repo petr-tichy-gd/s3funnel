@@ -248,6 +248,7 @@ def main():
         funnel.shutdown()
         sys.exit()
     signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGPIPE, shutdown)
 
     # Setup output logger
     output = logging.getLogger('output')
