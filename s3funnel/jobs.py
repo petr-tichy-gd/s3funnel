@@ -341,6 +341,32 @@ class SetAclJob(Job):
             self.failed.put(e)
 
 
+class CheckAclJob(Job):
+    "Copy the given key from another bucket."
+
+    aws_services_owner = 'db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf'
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                ok = True
+                x = toolbox.get_bucket(self.bucket).get_acl(key_name=self.key)
+                if not x.owner.id == self.aws_services_owner:
+                    print "%s Owner wrong: %s" % (self.key, x.owner.display_name)
+                    ok = False
+                elif len(x.acl.grants) > 0:
+                    for acl in x.acl.grants:
+                        if not (acl.id == self.aws_services_owner and acl.permission == 'FULL_CONTROL'):
+                            print "%s has grant for %s" % (self.key, x.acl.grants[acl].display_name)
+                            ok = False
+                if ok:
+                    print "OK: %s" % self.key
                 return
             except S3ResponseError, e:
                 if e.status == 404:

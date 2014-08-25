@@ -10,9 +10,9 @@ from socket import error as SocketError
 from Queue import Queue, Empty
 from exceptions import FunnelError
 
-from jobs import GetJob, PutJob, DeleteJob, DeleteMulitpleJob, CopyJob, SetAclJob
+from jobs import GetJob, PutJob, DeleteJob, DeleteMulitpleJob, CopyJob, SetAclJob, CheckAclJob
 
-__all__ = ['GetJob', 'PutJob', 'DeleteJob', 'DeleteMulitpleJob', 'S3ToolBox', 'BucketFunnel', 'SetAclJob']
+__all__ = ['GetJob', 'PutJob', 'DeleteJob', 'DeleteMulitpleJob', 'S3ToolBox', 'BucketFunnel', 'SetAclJob', 'CheckAclJob']
 
 # Helpers
 
@@ -305,6 +305,26 @@ class S3Funnel(object):
         pool = self._get_pool()
         for k in ikeys:
             j = SetAclJob(bucket, k, failed, c)
+            pool.put(j)
+        pool.join()
+
+        return collapse_queue(failed)
+
+
+    def checkacl(self, bucket, ikeys, retry=5, **config):
+        """
+        Given an iterator of file paths, copy these files into the current bucket from source bucket
+        Return a list of failed keys (if any).
+        """
+        # Setup local config for this request
+        c = {}
+        c.update(config)
+        c['retry'] = retry
+
+        failed = Queue()
+        pool = self._get_pool()
+        for k in ikeys:
+            j = CheckAclJob(bucket, k, failed, c)
             pool.put(j)
         pool.join()
 
