@@ -65,21 +65,21 @@ def main():
     parser.add_option("-t", "--threads",    dest="numthreads", default=1, type="int", metavar="N", help="Number of threads to use [default: %default]")
     parser.add_option("-T", "--timeout",    dest="timeout", default=0, type="float", metavar="SECONDS", help="Socket timeout time, 0 is never [default: %default]")
     parser.add_option("--insecure",         dest="secure", action="store_false", default=True, help="Don't use secure (https) connection")
-    parser.add_option("--list-marker",      dest="list_marker", type="string", default=None, metavar="KEY", help="(`list` only) Start key for list operation")
-    parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=None, metavar="STRING", help="(`list` only) Limit results to a specific prefix")
-    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=None, metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
-    parser.add_option("--put-acl",          dest="acl", type="string", default="public-read", help="(`put` only) Set the ACL permission for each file [default: %default]")
-    parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", help="(`put` only) Use the full given path as the key name, instead of just the basename")
-    parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
-    parser.add_option("--put-header",       dest="headers", type="string", action="append", help="(`put` only) Add the specified header to the request")
-    parser.add_option("--add-prefix",       dest="add_prefix", type="string", default="", help="(`put` and `copy` only) Add specified prefix to keys in destination bucket")
-    parser.add_option("--del-prefix",       dest="del_prefix", type="string", default="", help="(`put` and `copy` only) Delete specified prefix from keys in destination bucket")
-    parser.add_option("--source-bucket",    dest="source_bucket", type="string", help="(`copy` only) Source bucket for files")
-    parser.add_option("--no-ignore-s3fs-dirs",    dest="ignore_s3fs_dirs", action="store_false", default=True, help="(`get` only) Don't ignore s3fs directory objects ")
+    parser.add_option("--list-marker",      dest="list_marker", type="string", default=None, metavar="KEY", help="('list' only) Start key for list operation")
+    parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=None, metavar="STRING", help="('list' only) Limit results to a specific prefix")
+    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=None, metavar="CHAR", help="('list' only) Treat value as a delimiter for hierarchical listing")
+    parser.add_option("--put-acl",          dest="acl", type="string", default="public-read", help="('put' only) Set the ACL permission for each file [default: %default]")
+    parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", help="('put' only) Use the full given path as the key name, instead of just the basename")
+    parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", help="('put' only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
+    parser.add_option("--put-header",       dest="headers", type="string", action="append", help="('put' only) Add the specified header to the request")
+    parser.add_option("--add-prefix",       dest="add_prefix", type="string", default="", help="('put' and 'copy' only) Add specified prefix to keys in destination bucket")
+    parser.add_option("--del-prefix",       dest="del_prefix", type="string", default="", help="('put' and 'copy' only) Delete specified prefix from keys in destination bucket")
+    parser.add_option("--source-bucket",    dest="source_bucket", type="string", help="('copy' only) Source bucket for files")
+    parser.add_option("--no-ignore-s3fs-dirs",    dest="ignore_s3fs_dirs", action="store_false", default=True, help="('get' only) Don't ignore s3fs directory objects ")
     parser.add_option("-i", "--input",      dest="input", type="string", metavar="FILE", help="Read one file per line from a FILE manifest")
     parser.add_option("-v", "--verbose",    dest="verbose", action="count", default=None, help="Enable verbose output. Use twice to enable debug output")
     parser.add_option("--version",          dest="version", action="store_true", help="Output version information and exit")
-    parser.add_option("--batch-delete",     dest="batch_delete", default=1, type="int", metavar="N", help="(`delete` only) Delete in batches of N")
+    parser.add_option("--batch-delete",     dest="batch_delete", default=1, type="int", metavar="N", help="('delete' only) Delete in batches of N")
 
     # Deprecated options (for backwards compatibility)
     parser.add_option("--start_key",        dest="list_marker", type="string", default=None, help=SUPPRESS_HELP)
@@ -105,18 +105,18 @@ def main():
     if options.aws_secret_key:
         aws_secret_key = options.aws_secret_key
     if None in [aws_key, aws_secret_key]:
-        parser.error("Missing required arguments `aws_key` or `aws_secret_key`")
+        parser.error("Missing required arguments 'aws_key' or 'aws_secret_key'")
 
     ## Threads
     if options.numthreads < 1:
-        parser.error("`theads` must be at least 1")
+        parser.error("'theads' must be at least 1")
 
     ## Misc. options
     if options.timeout:
         try:
             socket.setdefaulttimeout(options.timeout)
         except TypeError, e:
-            parser.error("`timeout` error: %s" % e.message)
+            parser.error("'timeout' error: %s" % e.message)
 
     ## Parse put headers
     headers = {}
@@ -224,7 +224,7 @@ def main():
         except (IOError, IndexError), e:
             log.error("%s: File not found" % options.input)
             return -1
-        input_src = "`%s'" % options.input
+        input_src = "'%s'" % options.input
     elif len(args) < 3:
         # Get source from stdin
         input_src = "stdin"
