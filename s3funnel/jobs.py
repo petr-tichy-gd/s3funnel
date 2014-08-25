@@ -294,6 +294,15 @@ class CopyJob(Job):
 class SetAclJob(Job):
     "Copy the given key from another bucket."
 
+    import boto.s3.acl
+    import boto.s3.user
+
+    policy = boto.s3.acl.Policy()
+    policy.owner = boto.s3.user.User(id='db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf')
+    policy.acl = boto.s3.acl.ACL()
+    policy.acl.add_user_grant(permission='FULL_CONTROL',
+                              user_id='db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf')
+
     def __init__(self, bucket, key, failed, config={}):
         self.bucket = bucket
         self.key = key
@@ -303,19 +312,46 @@ class SetAclJob(Job):
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
-                # k = toolbox.get_conn().make_request(method='PUT', bucket=self.bucket, key=self.key,
-                #                                     query_args='acl',
-                #                                     headers={'x-amz-grant-full-control': 'ID="db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf"'})
-                k = toolbox.get_conn().make_request(method='HEAD', bucket=self.bucket, key=self.key)
-                if k.status == 200:
-                    log.info("Done: %s" % self.key)
-                else:
-                    log.error("%s on %s" % (k.status, self.key))
-                    raise BotoServerError
+                x = toolbox.get_bucket(self.bucket).set_acl(self.policy, key_name=self.key)
                 return
             except S3ResponseError, e:
-                log.warning("Connection lost, reconnecting and retrying...")
-                toolbox.reset()
+                if e.status == 404:
+                    log.warning("%s not found" % self.key)
+                    return
+                elif e.status == 403:
+                    log.warning("%s access denied" % self.key)
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+
+                return
+            except S3ResponseError, e:
+                if e.status == 404:
+                    log.warning("%s not found" % self.key)
+                    return
+                elif e.status == 403:
+                    log.warning("%s access denied" % self.key)
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
             except BotoServerError, e:
                 break
             except (IncompleteRead, SocketError, BotoClientError), e:
