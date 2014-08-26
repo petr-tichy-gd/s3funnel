@@ -36,7 +36,7 @@ class JobError(Exception):
 class GetJob(Job):
     "Download the given key from S3."
 
-    def __init__(self, bucket, key, failed, config=dict()):
+    def __init__(self, bucket, key, failed, config={}):
         self.bucket = bucket
         self.key = key
         self.failed = failed
@@ -309,6 +309,110 @@ class LookupJob(Job):
             except S3ResponseError, e:
                 if e.status == 403 or e.status == 404:
                     log.error("%s on %s" % (e.status, self.key))
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+
+class SetAclJob(Job):
+    "Copy the given key from another bucket."
+
+    import boto.s3.acl
+    import boto.s3.user
+
+    policy = boto.s3.acl.Policy()
+    policy.owner = boto.s3.user.User(id='db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf')
+    policy.acl = boto.s3.acl.ACL()
+    policy.acl.add_user_grant(permission='FULL_CONTROL',
+                              user_id='db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf')
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                x = toolbox.get_bucket(self.bucket).set_acl(self.policy, key_name=self.key)
+                return
+            except S3ResponseError, e:
+                if e.status == 404:
+                    log.warning("%s not found" % self.key)
+                    return
+                elif e.status == 403:
+                    log.warning("%s access denied" % self.key)
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+
+class CheckAclJob(Job):
+    "Copy the given key from another bucket."
+
+    aws_services_owner = 'db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf'
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                ok = True
+                x = toolbox.get_bucket(self.bucket).get_acl(key_name=self.key)
+                if not x.owner.id == self.aws_services_owner:
+                    print "%s Owner wrong: %s" % (self.key, x.owner.display_name)
+                    ok = False
+                elif len(x.acl.grants) > 0:
+                    for acl in x.acl.grants:
+                        if not (acl.id == self.aws_services_owner and acl.permission == 'FULL_CONTROL'):
+                            print "%s has grant for %s" % (self.key, x.acl.grants[acl].display_name)
+                            ok = False
+                if ok:
+                    print "OK: %s" % self.key
+                return
+            except S3ResponseError, e:
+                if e.status == 404:
+                    log.warning("%s not found" % self.key)
+                    return
+                elif e.status == 403:
+                    log.warning("%s access denied" % self.key)
                     return
                 else:
                     log.warning("Connection lost, reconnecting and retrying...")
