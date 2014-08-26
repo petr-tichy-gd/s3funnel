@@ -152,6 +152,9 @@ class S3Funnel(object):
         marker = marker or config.get('list_marker') or ''
         prefix = prefix or config.get('list_prefix') or ''
         delimiter = delimiter or config.get('list_delimiter') or ''
+        check_owner = config.get('check_owner') or False
+        if check_owner:
+            bucket_owner = bucket.get_acl().owner
 
         more_results = True
         k = None
@@ -161,6 +164,8 @@ class S3Funnel(object):
             try:
                 r = bucket.get_all_keys(marker=marker, prefix=prefix, delimiter=delimiter)
                 for k in r:
+                    if check_owner and k.owner.id != bucket_owner.id:
+                        log.warning('{} owned by {}'.format(k.name, k.owner.display_name))
                     yield k.name
                 if k:
                     marker = k.name
